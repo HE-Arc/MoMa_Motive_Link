@@ -223,7 +223,7 @@ class MotiveLink:
                     bone_id = bone.id_num  # L'ID unique de l'os (ex: Hips, LeftArm...)
                     position = np.array(bone.pos) * 100  # [x, y, z] # TODO Verify units (cm <-> m?)
                     rotation = np.array(bone.rot)  # [qx, qy, qz, qw] (Quaternion)
-                    scale = np.array([1.0, 1.0, 1.0] ) # Motive ne fournit pas d'échelle, on suppose 1.0
+                    scale = np.array([1.0, 1.0, 1.0])  # Motive ne fournit pas d'échelle, on suppose 1.0
 
                     # position + rotation + scale into a 4x4 transform matrix
                     transform_matrix = Tools.compose_transform(position, rotation, scale)
@@ -231,11 +231,6 @@ class MotiveLink:
 
         self.local_matrices = np.array(matrices, dtype=np.float64)
         # print(self.local_matrices)
-
-    def request_data_descriptions(self, s_client):
-        # Request the model definitions
-        s_client.send_request(s_client.command_socket, s_client.NAT_REQUEST_MODELDEF, "",
-                              (s_client.server_ip_address, s_client.command_port))
 
     def get_skeleton_definition(self) -> dict:
         """
@@ -269,11 +264,113 @@ class MotiveLink:
             }
         }
 
+    def request_data_descriptions(self, s_client):
+        # Request the model definitions
+        return s_client.send_request(s_client.command_socket, s_client.NAT_REQUEST_MODELDEF, "",
+                                     (s_client.server_ip_address, s_client.command_port))
+
+    # region NATNET COMMANDS
+    # * Find the command list here : https://docs.optitrack.com/developer-tools/natnet-sdk/natnet-remote-requests-commands
+    def set_live_mode(self) -> int:
+        if self.streamingClient is None or self.status is not LINK_STATUS.READY:
+            return -1
+
+        return self.streamingClient.send_command("LiveMode")
+
+    def set_edit_mode(self) -> int:
+        if self.streamingClient is None or self.status is not LINK_STATUS.READY:
+            return -1
+
+        return self.streamingClient.send_command("EditMode")
+
+    # region PLAYBACK AND TIMELINE CONTROLS
+    def set_timeline_play(self) -> int:
+        if self.streamingClient is None or self.status is not LINK_STATUS.READY:
+            return -1
+
+        return self.streamingClient.send_command("TimelinePlay")
+
+    def set_timeline_stop(self) -> int:
+        if self.streamingClient is None or self.status is not LINK_STATUS.READY:
+            return -1
+
+        return self.streamingClient.send_command("TimelineStop")
+
+    def set_playback_take_name(self, playback_take_name: str) -> int:
+        if self.streamingClient is None or self.status is not LINK_STATUS.READY:
+            return -1
+
+        return self.streamingClient.send_command(f"SetPlaybackTakeName,{playback_take_name}")
+
+    def set_playback_start_frame(self, start_frame_number: int) -> int:
+        if self.streamingClient is None or self.status is not LINK_STATUS.READY:
+            return -1
+
+        return self.streamingClient.send_command(f"SetPlaybackStartFrame,{start_frame_number}")
+
+    def set_playback_stop_frame(self, stop_frame_number: int) -> int:
+        if self.streamingClient is None or self.status is not LINK_STATUS.READY:
+            return -1
+
+        return self.streamingClient.send_command(f"SetPlaybackStopFrame,{stop_frame_number}")
+
+    # TODO : This is not working as intended
+    def set_playback_current_frame(self, current_frame_number: int) -> int:
+        if self.streamingClient is None or self.status is not LINK_STATUS.READY:
+            return -1
+
+        return self.streamingClient.send_command(f"SetPlaybackCurrentFrame,{current_frame_number}")
+
+    def set_playback_looping(self, loop: bool) -> int:
+        if self.streamingClient is None or self.status is not LINK_STATUS.READY:
+            return -1
+
+        if loop:
+            return self.streamingClient.send_command("SetPlaybackLooping")
+        else:
+            return self.streamingClient.send_command("SetPlaybackLooping,0")
+
+    # endregion
+
+    # region RECORDING COMMANDS
+    def set_recording_start(self) -> int:
+        if self.streamingClient is None or self.status is not LINK_STATUS.READY:
+            return -1
+
+        return self.streamingClient.send_command("StartRecording")
+
+    def set_recording_stop(self) -> int:
+        if self.streamingClient is None or self.status is not LINK_STATUS.READY:
+            return -1
+
+        return self.streamingClient.send_command("StopRecording")
+
+    def set_record_take_name(self, record_take_name: str) -> int:
+        if self.streamingClient is None or self.status is not LINK_STATUS.READY:
+            return -1
+
+        return self.streamingClient.send_command(f"SetRecordTakeName,{record_take_name}")
+
+    def set_current_session(self, session_name: str) -> int:
+        """
+        Set current session. If the session name already exists, Motive switches to that session.
+        If the session does not exist, Motive will create a new session.
+        You can use absolute paths to define folder locations.
+        :param session_name: Name or absolute path of the session
+        :return:
+        """
+        if self.streamingClient is None or self.status is not LINK_STATUS.READY:
+            return -1
+
+        return self.streamingClient.send_command(f"SetCurrentSession,{session_name}")
+
+    # endregion
+    # endregion
+
     def dispose(self):
         self.status = LINK_STATUS.WAIT
         if self.streamingClient is not None:
             self.streamingClient.shutdown()
-
 
 
 if __name__ == "__main__":
