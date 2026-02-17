@@ -38,7 +38,7 @@ class MotiveLink:
     def start(self, use_multicast=False):
         print("This is the MotiveLink core module.")
 
-        server_hostname = os.getenv("SERVER_HOSTNAME")
+        server_hostname = os.getenv("MOMA_MOTIVELINK_SERVER_HOSTNAME")
         try:
             motive_ip = socket.gethostbyname(server_hostname)
             print(f"Serveur Motive trouvé à l'adresse : {motive_ip}")
@@ -49,7 +49,7 @@ class MotiveLink:
 
         # Récupérer automatiquement MON adresse IP (celle du PC Python)
         hostname_local = socket.gethostname()
-        client_ip = os.getenv("CLIENT_IP", None)
+        client_ip = os.getenv("MOMA_MOTIVELINK_CLIENT_IP", None)
         if client_ip is None:
             client_ip = Tools.get_real_local_ip()
 
