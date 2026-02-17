@@ -242,7 +242,8 @@ class NatNetClient:
                     # address as server and client
                     result.bind(('', 0))
                 else:
-                    result.bind((self.local_ip_address, self.command_port))
+                    # result.bind((self.local_ip_address, self.command_port))
+                    result.bind(("0.0.0.0", self.command_port))
             except socket.error as e:
                 print(f'Socket error: {e}')
             # set to broadcast mode
