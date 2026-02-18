@@ -242,8 +242,8 @@ class NatNetClient:
                     # address as server and client
                     result.bind(('', 0))
                 else:
-                    # result.bind((self.local_ip_address, self.command_port))
-                    result.bind(("0.0.0.0", self.command_port))
+                    result.bind((self.local_ip_address, self.command_port))
+                    # result.bind(("0.0.0.0", self.command_port))
             except socket.error as e:
                 print(f'Socket error: {e}')
             # set to broadcast mode
@@ -635,7 +635,7 @@ class NatNetClient:
             # Model name
             model_name, separator, remainder = bytes(data[offset:]).partition(b'\0') #type: ignore  # noqa E501
             offset += len(model_name) + 1
-            trace_mf("Model Name     : ", model_name.decode('utf-8'))
+            trace_mf("Model Name     : ", model_name.decode('utf-8',"replace")) #type: ignore  # noqa E501
             marker_data.set_model_name(model_name)
             # Marker count (4 bytes)
             marker_count = int.from_bytes(data[offset:offset+4], byteorder='little', signed=True) #type: ignore  # noqa E501

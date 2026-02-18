@@ -379,7 +379,7 @@ class MotiveLink:
 
 if __name__ == "__main__":
     motive_link = MotiveLink()
-    motive_link.start()
+    motive_link.start(use_multicast=False)
 
     # Keep the main thread alive to let the listener thread work
     try:
