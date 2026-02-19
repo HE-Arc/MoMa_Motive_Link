@@ -47,20 +47,20 @@ class MotiveLink:
         logger.info(f"MoMaMotiveLink log level set to {logging.getLevelName(level)}")
 
     def start(self, use_multicast=False):
-        print("This is the MotiveLink core module.")
+        logger.info("This is the MotiveLink core module.")
 
         server_hostname = os.getenv("MOMA_MOTIVELINK_SERVER_HOSTNAME")
         client_ip = os.getenv("MOMA_MOTIVELINK_CLIENT_IP", None)
 
-        print("MOMA_MOTIVELINK_SERVER_HOSTNAME:", server_hostname)
-        print("MOMA_MOTIVELINK_CLIENT_IP:", client_ip)
+        logger.info(f"MOMA_MOTIVELINK_SERVER_HOSTNAME: {server_hostname}", )
+        logger.info(f"MOMA_MOTIVELINK_CLIENT_IP: {client_ip}")
 
         try:
             motive_ip = socket.gethostbyname(server_hostname)
-            print(f"Serveur Motive trouvé à l'adresse : {motive_ip}")
+            logger.info(f"Serveur Motive trouvé à l'adresse : {motive_ip}")
 
         except socket.gaierror:
-            print(f"ERREUR : Impossible de trouver l'ordinateur nommé '{server_hostname}' sur le réseau.")
+            logger.info(f"ERREUR : Impossible de trouver l'ordinateur nommé '{server_hostname}' sur le réseau.")
             exit()
 
         # Récupérer automatiquement MON adresse IP (celle du PC Python)
@@ -68,7 +68,7 @@ class MotiveLink:
         if client_ip is None:
             client_ip = Tools.get_real_local_ip()
 
-        print(f"Mon IP Client {hostname_local} est : {client_ip}")
+        logger.info(f"Mon IP Client {hostname_local} est : {client_ip}")
 
         # Setup the client
         self.streamingClient = NatNetClient()
@@ -91,7 +91,7 @@ class MotiveLink:
         is_running = self.streamingClient.run('d')
 
         if not is_running:
-            print("ERROR: Could not start streaming client.")
+            logger.info("ERROR: Could not start streaming client.")
             try:
                 sys.exit(1)
             except SystemExit:
@@ -102,7 +102,7 @@ class MotiveLink:
         time.sleep(1)
 
         if self.streamingClient.connected() is False:
-            print("ERROR: Could not connect properly.  Check that Motive streaming is on.")  # type: ignore  # noqa F501
+            logger.info("ERROR: Could not connect properly.  Check that Motive streaming is on.")  # type: ignore  # noqa F501
             try:
                 sys.exit(2)
             except SystemExit:
@@ -111,9 +111,10 @@ class MotiveLink:
                 print("exiting")
 
         self.print_configuration(self.streamingClient)
+        logger.debug("Requesting model descriptions from Motive...")
         self.request_data_descriptions(self.streamingClient)
 
-        print("Connected to Motive! Streaming data...")
+        logger.info("Connected to Motive! Streaming data...")
 
     def is_ready(self):
         return self.status == LINK_STATUS.READY

@@ -1,0 +1,11 @@
+services:
+  motive-link:
+    build: .
+    ports:
+      - "1510:1510/udp"
+      - "1511:1511/udp"
+    restart: always
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
