@@ -2,6 +2,7 @@ import os
 import socket
 import sys
 import time
+import logging
 
 import numpy as np
 from numpy._typing import NDArray
@@ -13,13 +14,19 @@ from MoMaMotiveLink.natnetsdk.NatNetClient import NatNetClient
 
 from enum import Enum
 
+logging.basicConfig(level=logging.DEBUG, format='%(levelname)s: %(message)s')
+logger = logging.getLogger("MoMaMotiveLinkLogger")
+logger.setLevel(logging.INFO)
+
 
 class LINK_STATUS(Enum):
+    STARTING = 0
     WAIT = 1
     READY = 2
 
 
 class MotiveLink:
+
     def __init__(self):
         self.status = LINK_STATUS.WAIT
 
@@ -34,6 +41,10 @@ class MotiveLink:
 
         # Données d'animation
         self.local_matrices: NDArray[np.float64] = None  # (B, 4, 4) - Matrices de transformation complètes
+
+    def set_log_level(self, level: int):
+        logger.setLevel(level)
+        logger.info(f"MoMaMotiveLink log level set to {logging.getLevelName(level)}")
 
     def start(self, use_multicast=False):
         print("This is the MotiveLink core module.")
@@ -149,6 +160,8 @@ class MotiveLink:
         print("  PythonVersion    %s" % (sys.version))
 
     def receive_model_descriptions(self, data_descs: DataDescriptions):
+        logger.debug("Received model descriptions from Motive.")
+
         self.status = LINK_STATUS.WAIT
 
         self.bone_id_to_name = {}  # Reset
@@ -205,7 +218,11 @@ class MotiveLink:
             print(out_string)
 
     def receive_frame_with_skeleton(self, data_dict):
-        # print("Received frame with skeleton data")
+        if self.status is not LINK_STATUS.READY:
+            # On attend d'avoir reçu les descriptions pour traiter les frames
+            return
+
+        logger.debug("Received frame with skeleton data")
 
         # 1. Récupérer l'objet global
         if "mocap_data" not in data_dict:
@@ -379,6 +396,7 @@ class MotiveLink:
 
 if __name__ == "__main__":
     motive_link = MotiveLink()
+    motive_link.set_log_level(logging.DEBUG)
     motive_link.start(use_multicast=False)
 
     # Keep the main thread alive to let the listener thread work

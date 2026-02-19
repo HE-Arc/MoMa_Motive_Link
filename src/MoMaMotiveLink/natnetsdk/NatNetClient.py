@@ -290,7 +290,7 @@ class NatNetClient:
                 print(f'Unicast Socket Error: {e}')
                 sys.exit(1)
 
-        result.settimeout(2.0)
+        # result.settimeout(2.0)
         return result
 
     def __unpack_rigid_body_3_and_above(self, data, rb_num):
