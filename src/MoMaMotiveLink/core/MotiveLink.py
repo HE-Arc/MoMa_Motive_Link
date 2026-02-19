@@ -79,6 +79,9 @@ class MotiveLink:
 
         logger.info("MotiveLink started and listening for data...")
 
+    def is_ready(self):
+        return self.status == LINK_STATUS.READY
+
     def receive_model_descriptions(self, data_descs: DataDescriptions):
         logger.debug("Received model descriptions from Motive.")
 
