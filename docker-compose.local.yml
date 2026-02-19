@@ -1,6 +1,7 @@
 services:
   motive-link:
     build: .
+    network_mode: "host"
     ports:
       - "1510:1510/udp"
       - "1511:1511/udp"
