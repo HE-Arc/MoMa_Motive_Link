@@ -82,6 +82,38 @@ class MotiveLink:
     def is_ready(self):
         return self.status == LINK_STATUS.READY
 
+    def get_skeleton_definition(self) -> dict:
+        """
+        Génère un dictionnaire contenant la structure statique du squelette.
+        Idéal pour être envoyé en JSON au client lors de l'initialisation.
+        """
+        parents_list: list[int] = [-1]
+        for parent in self.bone_parents:
+            parent_name = self.bone_id_to_name.get(parent, None)
+            if parent_name is None:
+                continue
+            id = list(self.bone_id_to_name.values()).index(parent_name)
+            parents_list.append(id)
+
+        # Préparation de la bind pose (si disponible, sinon identité)
+        num_bones = len(self.bone_id_to_name)
+
+        # Valeurs par défaut si les loaders n'ont pas rempli les rest_xxx
+        r_pos = self.rest_positions.tolist() if self.rest_positions is not None else [[0, 0, 0]] * num_bones
+        r_rot = self.rest_rotations.tolist() if self.rest_rotations is not None else [[0, 0, 0, 1]] * num_bones
+        r_scl = self.rest_scales.tolist() if self.rest_scales is not None else [[1, 1, 1]] * num_bones
+
+        return {
+            "type": "SKELETON_DEF",
+            "bone_names": list(self.bone_id_to_name.values()),
+            "parents": parents_list,
+            "bind_pose": {
+                "positions": r_pos,
+                "rotations": r_rot,
+                "scales": r_scl
+            }
+        }
+
     def receive_model_descriptions(self, data_descs: DataDescriptions):
         logger.debug("Received model descriptions from Motive.")
 
