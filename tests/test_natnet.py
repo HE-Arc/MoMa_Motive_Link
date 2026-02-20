@@ -64,9 +64,9 @@ if __name__ == "__main__":
 
     streaming_client.run_async()
 
-    for i in range(10):
+    while True:
         time.sleep(1)
         # streaming_client.update_sync()
-        print(f"Received {num_frames} frames in {i + 1}s")
+        print(f"Received {num_frames} frames in 1s")
 
     streaming_client.shutdown()

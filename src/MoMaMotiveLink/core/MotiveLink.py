@@ -1,14 +1,18 @@
-import logging
 import os
 import socket
+import sys
 import time
-from enum import Enum
+import logging
 
 import numpy as np
-from natnet import DataDescriptions, DataFrame, NatNetClient, SkeletonDescription, RigidBodyDescription
 from numpy._typing import NDArray
 
 from MoMaMotiveLink.core import Tools
+from MoMaMotiveLink.natnetsdk.DataDescriptions import DataDescriptions, SkeletonDescription, RigidBodyDescription
+from MoMaMotiveLink.natnetsdk.MoCapData import MoCapData, SkeletonData, Skeleton, RigidBody
+from MoMaMotiveLink.natnetsdk.NatNetClient import NatNetClient
+
+from enum import Enum
 
 logging.basicConfig(level=logging.DEBUG, format='%(levelname)s: %(message)s')
 logger = logging.getLogger("MoMaMotiveLinkLogger")
@@ -43,20 +47,20 @@ class MotiveLink:
         logger.info(f"MoMaMotiveLink log level set to {logging.getLevelName(level)}")
 
     def start(self, use_multicast=False):
-        logger.info("This is the MotiveLink core module.")
+        print("This is the MotiveLink core module.")
 
         server_hostname = os.getenv("MOMA_MOTIVELINK_SERVER_HOSTNAME")
         client_ip = os.getenv("MOMA_MOTIVELINK_CLIENT_IP", None)
 
-        logger.info(f"MOMA_MOTIVELINK_SERVER_HOSTNAME: {server_hostname}", )
-        logger.info(f"MOMA_MOTIVELINK_CLIENT_IP: {client_ip}")
+        print("MOMA_MOTIVELINK_SERVER_HOSTNAME:", server_hostname)
+        print("MOMA_MOTIVELINK_CLIENT_IP:", client_ip)
 
         try:
             motive_ip = socket.gethostbyname(server_hostname)
-            logger.info(f"Serveur Motive trouvé à l'adresse : {motive_ip}")
+            print(f"Serveur Motive trouvé à l'adresse : {motive_ip}")
 
         except socket.gaierror:
-            logger.info(f"ERREUR : Impossible de trouver l'ordinateur nommé '{server_hostname}' sur le réseau.")
+            print(f"ERREUR : Impossible de trouver l'ordinateur nommé '{server_hostname}' sur le réseau.")
             exit()
 
         # Récupérer automatiquement MON adresse IP (celle du PC Python)
@@ -64,23 +68,190 @@ class MotiveLink:
         if client_ip is None:
             client_ip = Tools.get_real_local_ip()
 
-        logger.info(f"Mon IP Client {hostname_local} est : {client_ip}")
+        print(f"Mon IP Client {hostname_local} est : {client_ip}")
 
         # Setup the client
-        self.streaming_client = NatNetClient(server_ip_address=motive_ip, local_ip_address=client_ip,
-                                             use_multicast=use_multicast)
-        self.streaming_client.on_data_description_received_event.handlers.append(self.receive_model_descriptions)
-        self.streaming_client.on_data_frame_received_event.handlers.append(self.receive_frame_with_skeleton)
+        self.streamingClient = NatNetClient()
+        self.streamingClient.set_print_level(0)
 
-        self.streaming_client.connect()
-        self.streaming_client.request_modeldef()
+        # Configure the client to connect to Motive
+        self.streamingClient.set_client_address(client_ip)  # Your IP (or 127.0.0.1 if local)
+        self.streamingClient.set_server_address(motive_ip)  # Motive IP (or 127.0.0.1 if local)
+        self.streamingClient.set_use_multicast(use_multicast)  # Must match Motive 'Transmission Type'
+
+        # Configure the callbacks
+        # streamingClient.new_frame_listener = receive_new_frame
+        # self.streamingClient.new_frame_with_data_listener = self.receive_new_frame_with_data
+        self.streamingClient.new_frame_with_data_listener = self.receive_frame_with_skeleton
+        # streamingClient.rigid_body_listener = receive_rigid_body_frame
+        self.streamingClient.model_description_listener = self.receive_model_descriptions
+
+        # Start the connection
+        # the argument 'd' sets the data transfer mode to 'data + command'. The other option is 'command only' ('c').
+        is_running = self.streamingClient.run('d')
+
+        if not is_running:
+            print("ERROR: Could not start streaming client.")
+            try:
+                sys.exit(1)
+            except SystemExit:
+                print("...")
+            finally:
+                print("exiting")
+
         time.sleep(1)
-        self.streaming_client.run_async()
 
-        logger.info("MotiveLink started and listening for data...")
+        if self.streamingClient.connected() is False:
+            print("ERROR: Could not connect properly.  Check that Motive streaming is on.")  # type: ignore  # noqa F501
+            try:
+                sys.exit(2)
+            except SystemExit:
+                print("...")
+            finally:
+                print("exiting")
+
+        self.print_configuration(self.streamingClient)
+        self.request_data_descriptions(self.streamingClient)
+
+        print("Connected to Motive! Streaming data...")
 
     def is_ready(self):
         return self.status == LINK_STATUS.READY
+
+    def print_configuration(self, natnet_client):
+        natnet_client.refresh_configuration()
+        print("Connection Configuration:")
+        print("  Client:          %s" % natnet_client.local_ip_address)
+        print("  Server:          %s" % natnet_client.server_ip_address)
+        print("  Command Port:    %d" % natnet_client.command_port)
+        print("  Data Port:       %d" % natnet_client.data_port)
+
+        changeBitstreamString = "  Can Change Bitstream Version = "
+        if natnet_client.use_multicast:
+            print("  Using Multicast")
+            print("  Multicast Group: %s" % natnet_client.multicast_address)
+            changeBitstreamString += "false"
+        else:
+            print("  Using Unicast")
+            changeBitstreamString += "true"
+
+        # NatNet Server Info
+        application_name = natnet_client.get_application_name()
+        nat_net_requested_version = natnet_client.get_nat_net_requested_version()
+        nat_net_version_server = natnet_client.get_nat_net_version_server()
+        server_version = natnet_client.get_server_version()
+
+        print("  NatNet Server Info")
+        print("    Application Name %s" % (application_name))
+        print("    MotiveVersion  %d %d %d %d" % (server_version[0], server_version[1], server_version[2],
+                                                  server_version[3]))  # type: ignore  # noqa F501
+        print("    NatNetVersion  %d %d %d %d" % (nat_net_version_server[0], nat_net_version_server[1],
+                                                  nat_net_version_server[2],
+                                                  nat_net_version_server[3]))  # type: ignore  # noqa F501
+        print("  NatNet Bitstream Requested")
+        print("    NatNetVersion  %d %d %d %d" % (nat_net_requested_version[0], nat_net_requested_version[1],
+                                                  # type: ignore  # noqa F501
+                                                  nat_net_requested_version[2],
+                                                  nat_net_requested_version[3]))  # type: ignore  # noqa F501
+
+        print(changeBitstreamString)
+        # print("command_socket = %s" % (str(natnet_client.command_socket)))
+        # print("data_socket    = %s" % (str(natnet_client.data_socket)))
+        print("  PythonVersion    %s" % (sys.version))
+
+    def receive_model_descriptions(self, data_descs: DataDescriptions):
+        logger.debug("Received model descriptions from Motive.")
+
+        self.status = LINK_STATUS.WAIT
+
+        self.bone_id_to_name = {}  # Reset
+        bone_parents = []
+        rest_positions = []
+        rest_rotations = []
+
+        # On parcourt les squelettes trouvés dans les descriptions
+        skeleton: SkeletonDescription
+        for skeleton in data_descs.skeleton_list:
+            print(f"Squelette trouvé : {skeleton.name}")
+
+            # Dans DataDescriptions.py, les os sont dans 'rigid_body_description_list'
+            bone_desc: RigidBodyDescription
+            for bone_desc in skeleton.rigid_body_description_list:
+                # On remplit le dictionnaire : ID (int) -> Nom (str)
+                decoded_name = bone_desc.sz_name.decode()
+                self.bone_id_to_name[bone_desc.id_num] = decoded_name
+                bone_parents.append(bone_desc.parent_id)
+                rest_positions.append(bone_desc.pos)
+                rest_rotations.append(bone_desc.rot)
+
+                print(f"   Mapping : ID {bone_desc.id_num} -> {decoded_name}")
+
+        self.bone_parents = np.array(bone_parents, dtype=np.int32)
+        self.rest_positions = np.array(rest_positions, dtype=np.float64) * 100.0  # TODO Verify units (cm <-> m?)
+        self.rest_rotations = np.array(rest_rotations, dtype=np.float64)
+        self.rest_scales = np.full_like(self.rest_positions, fill_value=1.0, dtype=np.float64)
+
+        self.status = LINK_STATUS.READY
+
+    def receive_new_frame_with_data(self, data_dict):
+        if self.status is not LINK_STATUS.READY:
+            # On attend d'avoir reçu les descriptions pour traiter les frames
+            return
+
+        order_list = ["frameNumber", "markerSetCount", "unlabeledMarkersCount",  # type: ignore  # noqa F841
+                      "rigidBodyCount", "skeletonCount", "labeledMarkerCount",
+                      "timecode", "timecodeSub", "timestamp", "isRecording",
+                      "trackedModelsChanged", "offset", "mocap_data"]
+        mocap_data: MoCapData = data_dict["mocap_data"]
+        skeleton_data: SkeletonData = mocap_data.skeleton_data
+        skeleton: Skeleton = skeleton_data.skeleton_list[0]
+        rigidbody: RigidBody = skeleton.rigid_body_list[0]
+
+        dump_args = True
+        if dump_args is True:
+            out_string = "    "
+            for key in data_dict:
+                out_string += key + "= "
+                if key in data_dict:
+                    out_string += str(data_dict[key]) + " "
+                out_string += "/"
+            print(out_string)
+
+    def receive_frame_with_skeleton(self, data_dict):
+        if self.status is not LINK_STATUS.READY:
+            # On attend d'avoir reçu les descriptions pour traiter les frames
+            return
+
+        logger.debug("Received frame with skeleton data")
+
+        # 1. Récupérer l'objet global
+        if "mocap_data" not in data_dict:
+            return
+        mocap_data = data_dict["mocap_data"]
+
+        matrices = []
+
+        # 2. Vérifier s'il y a des squelettes
+        if mocap_data.skeleton_data and mocap_data.skeleton_data.skeleton_list:
+            # 3. Boucler sur chaque squelette (Actor 1, Actor 2...)
+            for skeleton in mocap_data.skeleton_data.skeleton_list:
+                # print(f"Squelette ID: {skeleton.id_num}")
+
+                # 4. Boucler sur chaque OS du squelette
+                # Dans le SDK, les os sont stockés comme une liste de RigidBodies
+                for bone in skeleton.rigid_body_list:
+                    # Voici les données vitales pour votre animation :
+                    bone_id = bone.id_num  # L'ID unique de l'os (ex: Hips, LeftArm...)
+                    position = np.array(bone.pos) * 100  # [x, y, z] # TODO Verify units (cm <-> m?)
+                    rotation = np.array(bone.rot)  # [qx, qy, qz, qw] (Quaternion)
+                    scale = np.array([1.0, 1.0, 1.0])  # Motive ne fournit pas d'échelle, on suppose 1.0
+
+                    # position + rotation + scale into a 4x4 transform matrix
+                    transform_matrix = Tools.compose_transform(position, rotation, scale)
+                    matrices.append(transform_matrix)
+
+        self.local_matrices = np.array(matrices, dtype=np.float64)
+        # print(self.local_matrices)
 
     def get_skeleton_definition(self) -> dict:
         """
@@ -114,74 +285,113 @@ class MotiveLink:
             }
         }
 
-    def receive_model_descriptions(self, data_descs: DataDescriptions):
-        logger.debug("Received model descriptions from Motive.")
+    def request_data_descriptions(self, s_client):
+        # Request the model definitions
+        return s_client.send_request(s_client.command_socket, s_client.NAT_REQUEST_MODELDEF, "",
+                                     (s_client.server_ip_address, s_client.command_port))
 
-        self.status = LINK_STATUS.WAIT
+    # region NATNET COMMANDS
+    # * Find the command list here : https://docs.optitrack.com/developer-tools/natnet-sdk/natnet-remote-requests-commands
+    def set_live_mode(self) -> int:
+        if self.streamingClient is None or self.status is not LINK_STATUS.READY:
+            return -1
 
-        self.bone_id_to_name = {}  # Reset
-        bone_parents = []
-        rest_positions = []
-        rest_rotations = []
+        return self.streamingClient.send_command("LiveMode")
 
-        # On parcourt les squelettes trouvés dans les descriptions
-        skeleton: SkeletonDescription
-        for skeleton in data_descs.skeletons:
-            print(f"Squelette trouvé : {skeleton.name}")
+    def set_edit_mode(self) -> int:
+        if self.streamingClient is None or self.status is not LINK_STATUS.READY:
+            return -1
 
-            # Dans DataDescriptions.py, les os sont dans 'rigid_body_description_list'
-            bone_desc: RigidBodyDescription
-            for bone_desc in skeleton.rigid_body_descriptions:
-                # On remplit le dictionnaire : ID (int) -> Nom (str)
-                self.bone_id_to_name[bone_desc.id_num] = bone_desc.name
-                bone_parents.append(bone_desc.parent_id)
-                rest_positions.append(bone_desc.pos)
-                rest_rotations.append(bone_desc.quat)
+        return self.streamingClient.send_command("EditMode")
 
-                print(f"   Mapping : ID {bone_desc.id_num} -> {bone_desc.name}")
+    # region PLAYBACK AND TIMELINE CONTROLS
+    def set_timeline_play(self) -> int:
+        if self.streamingClient is None or self.status is not LINK_STATUS.READY:
+            return -1
 
-        self.bone_parents = np.array(bone_parents, dtype=np.int32)
-        self.rest_positions = np.array(rest_positions, dtype=np.float64) * 100.0  # TODO Verify units (cm <-> m?)
-        self.rest_rotations = np.array(rest_rotations, dtype=np.float64)
-        self.rest_scales = np.full_like(self.rest_positions, fill_value=1.0, dtype=np.float64)
+        return self.streamingClient.send_command("TimelinePlay")
 
-        self.status = LINK_STATUS.READY
+    def set_timeline_stop(self) -> int:
+        if self.streamingClient is None or self.status is not LINK_STATUS.READY:
+            return -1
 
-    def receive_frame_with_skeleton(self, dataframe: DataFrame):
-        if self.status is not LINK_STATUS.READY:
-            # On attend d'avoir reçu les descriptions pour traiter les frames
-            return
+        return self.streamingClient.send_command("TimelineStop")
 
-        logger.debug("Received frame with skeleton data")
+    def set_playback_take_name(self, playback_take_name: str) -> int:
+        if self.streamingClient is None or self.status is not LINK_STATUS.READY:
+            return -1
 
-        matrices = []
+        return self.streamingClient.send_command(f"SetPlaybackTakeName,{playback_take_name}")
 
-        # 2. Vérifier s'il y a des squelettes
-        if dataframe.skeletons:
-            # 3. Boucler sur chaque squelette (Actor 1, Actor 2...)
-            for skeleton in dataframe.skeletons:
-                # print(f"Squelette ID: {skeleton.id_num}")
+    def set_playback_start_frame(self, start_frame_number: int) -> int:
+        if self.streamingClient is None or self.status is not LINK_STATUS.READY:
+            return -1
 
-                # 4. Boucler sur chaque OS du squelette
-                # Dans le SDK, les os sont stockés comme une liste de RigidBodies
-                for bone in skeleton.rigid_bodies:
-                    # Voici les données vitales pour votre animation :
-                    bone_id = bone.id_num  # L'ID unique de l'os (ex: Hips, LeftArm...)
-                    position = np.array(bone.pos) * 100  # [x, y, z] # TODO Verify units (cm <-> m?)
-                    rotation = np.array(bone.rot)  # [qx, qy, qz, qw] (Quaternion)
-                    scale = np.array([1.0, 1.0, 1.0])  # Motive ne fournit pas d'échelle, on suppose 1.0
+        return self.streamingClient.send_command(f"SetPlaybackStartFrame,{start_frame_number}")
 
-                    # position + rotation + scale into a 4x4 transform matrix
-                    transform_matrix = Tools.compose_transform(position, rotation, scale)
-                    matrices.append(transform_matrix)
+    def set_playback_stop_frame(self, stop_frame_number: int) -> int:
+        if self.streamingClient is None or self.status is not LINK_STATUS.READY:
+            return -1
 
-        self.local_matrices = np.array(matrices, dtype=np.float64)
-        # print(self.local_matrices)
+        return self.streamingClient.send_command(f"SetPlaybackStopFrame,{stop_frame_number}")
+
+    # TODO : This is not working as intended
+    def set_playback_current_frame(self, current_frame_number: int) -> int:
+        if self.streamingClient is None or self.status is not LINK_STATUS.READY:
+            return -1
+
+        return self.streamingClient.send_command(f"SetPlaybackCurrentFrame,{current_frame_number}")
+
+    def set_playback_looping(self, loop: bool) -> int:
+        if self.streamingClient is None or self.status is not LINK_STATUS.READY:
+            return -1
+
+        if loop:
+            return self.streamingClient.send_command("SetPlaybackLooping")
+        else:
+            return self.streamingClient.send_command("SetPlaybackLooping,0")
+
+    # endregion
+
+    # region RECORDING COMMANDS
+    def set_recording_start(self) -> int:
+        if self.streamingClient is None or self.status is not LINK_STATUS.READY:
+            return -1
+
+        return self.streamingClient.send_command("StartRecording")
+
+    def set_recording_stop(self) -> int:
+        if self.streamingClient is None or self.status is not LINK_STATUS.READY:
+            return -1
+
+        return self.streamingClient.send_command("StopRecording")
+
+    def set_record_take_name(self, record_take_name: str) -> int:
+        if self.streamingClient is None or self.status is not LINK_STATUS.READY:
+            return -1
+
+        return self.streamingClient.send_command(f"SetRecordTakeName,{record_take_name}")
+
+    def set_current_session(self, session_name: str) -> int:
+        """
+        Set current session. If the session name already exists, Motive switches to that session.
+        If the session does not exist, Motive will create a new session.
+        You can use absolute paths to define folder locations.
+        :param session_name: Name or absolute path of the session
+        :return:
+        """
+        if self.streamingClient is None or self.status is not LINK_STATUS.READY:
+            return -1
+
+        return self.streamingClient.send_command(f"SetCurrentSession,{session_name}")
+
+    # endregion
+    # endregion
 
     def dispose(self):
         self.status = LINK_STATUS.WAIT
-        if self.streaming_client is not None:
-            self.streaming_client.shutdown()
+        if self.streamingClient is not None:
+            self.streamingClient.shutdown()
 
 
 if __name__ == "__main__":
@@ -193,7 +403,6 @@ if __name__ == "__main__":
     try:
         while True:
             time.sleep(1)
-            # motive_link.streaming_client.update_sync()
     except KeyboardInterrupt:
         print("Stopping...")
         motive_link.dispose()
