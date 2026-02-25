@@ -15,7 +15,7 @@ RUN apt-get update \
 COPY pyproject.toml /app
 RUN uv sync
 
-EXPOSE 1510/udp 1511/udp
+EXPOSE 1510/udp 1511/udp 1520/udp
 
 # Add the current directory contents into the container at /app
 COPY /src /app

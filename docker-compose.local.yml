@@ -2,9 +2,10 @@ services:
   motive-link:
     build: .
     network_mode: "host"
-    ports:
-      - "1510:1510/udp"
-      - "1511:1511/udp"
+#    ports:
+#      - "1510:1510/udp"
+#      - "1511:1511/udp"
+#      - "1520:1520/udp"
     restart: always
     env_file:
       - .env

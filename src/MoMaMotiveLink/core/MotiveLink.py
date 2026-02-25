@@ -29,6 +29,9 @@ class MotiveLink:
 
     def __init__(self):
         self.status = LINK_STATUS.WAIT
+        # self.status = LINK_STATUS.READY
+
+        self.data_counter = 0
 
         self.bone_id_to_name: dict[int, str] = {}
         self.bone_parents: NDArray[np.int32] = np.empty((0,), dtype=np.int32)  # np.array int32
@@ -80,10 +83,7 @@ class MotiveLink:
         self.streamingClient.set_use_multicast(use_multicast)  # Must match Motive 'Transmission Type'
 
         # Configure the callbacks
-        # streamingClient.new_frame_listener = receive_new_frame
-        # self.streamingClient.new_frame_with_data_listener = self.receive_new_frame_with_data
         self.streamingClient.new_frame_with_data_listener = self.receive_frame_with_skeleton
-        # streamingClient.rigid_body_listener = receive_rigid_body_frame
         self.streamingClient.model_description_listener = self.receive_model_descriptions
 
         # Start the connection
@@ -99,19 +99,24 @@ class MotiveLink:
             finally:
                 print("exiting")
 
-        time.sleep(1)
+        connection_timeout = 10  # seconds
+        start_time = time.time()
+        while self.streamingClient.connected() is False:
+            if time.time() - start_time > connection_timeout:
+                print("ERROR: Connection timeout. Could not connect to Motive.")
+                try:
+                    sys.exit(3)
+                except SystemExit:
+                    print("...")
+                finally:
+                    print("exiting")
 
-        if self.streamingClient.connected() is False:
-            print("ERROR: Could not connect properly.  Check that Motive streaming is on.")  # type: ignore  # noqa F501
-            try:
-                sys.exit(2)
-            except SystemExit:
-                print("...")
-            finally:
-                print("exiting")
-
-        self.print_configuration(self.streamingClient)
+        # self.print_configuration(self.streamingClient)
         self.request_data_descriptions(self.streamingClient)
+
+        while self.status != LINK_STATUS.READY:
+            print("Waiting for model descriptions from Motive...")
+            time.sleep(1.0)
 
         print("Connected to Motive! Streaming data...")
 
@@ -222,7 +227,8 @@ class MotiveLink:
             # On attend d'avoir reçu les descriptions pour traiter les frames
             return
 
-        logger.debug("Received frame with skeleton data")
+        frame_number = data_dict["frame_number"]
+        logger.debug(f"Received frame number {frame_number} with skeleton data")
 
         # 1. Récupérer l'objet global
         if "mocap_data" not in data_dict:
@@ -251,7 +257,7 @@ class MotiveLink:
                     matrices.append(transform_matrix)
 
         self.local_matrices = np.array(matrices, dtype=np.float64)
-        # print(self.local_matrices)
+        self.data_counter += 1
 
     def get_skeleton_definition(self) -> dict:
         """
@@ -396,13 +402,15 @@ class MotiveLink:
 
 if __name__ == "__main__":
     motive_link = MotiveLink()
-    motive_link.set_log_level(logging.DEBUG)
+    motive_link.set_log_level(logging.INFO)
     motive_link.start(use_multicast=False)
 
     # Keep the main thread alive to let the listener thread work
     try:
         while True:
             time.sleep(1)
+            logger.info(f"Main thread alive. Data frames received: {motive_link.data_counter}")
+            motive_link.data_counter = 0 # Reset counter after logging
     except KeyboardInterrupt:
         print("Stopping...")
         motive_link.dispose()
